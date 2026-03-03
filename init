@@ -57,11 +57,15 @@ gcloud services enable \
     certificatemanager.googleapis.com \
     --project "$PROJECT_ID"
 
-# Workaround for IPv6 connectivity issues in some environments
-echo "Disabling IPv6 to prevent connectivity issues..."
-sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
-sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
-sudo sysctl -w net.ipv6.conf.ens4.disable_ipv6=1 2>/dev/null || true
+# Workaround for IPv6 connectivity issues in some Linux environments
+if [ "$(uname)" == "Linux" ]; then
+    echo "Disabling IPv6 to prevent connectivity issues (Linux only)..."
+    sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || true
+    sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || true
+    sudo sysctl -w net.ipv6.conf.ens4.disable_ipv6=1 2>/dev/null || true
+else
+    echo "Skipping IPv6 disable (not on Linux)..."
+fi
 
 echo "Waiting for APIs to propagate..."
 sleep 10
