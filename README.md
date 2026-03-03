@@ -133,3 +133,15 @@ terraform destroy
 
 -   [Architecture Details](docs/architecture.md)
 -   [Maintenance & Troubleshooting](docs/maintenance.md)
+
+## Support & Feedback
+
+This project is a Proof of Concept and is not an officially supported Google product. I do not commit to providing active maintenance or long-term support, but I will do my best to address issues and review pull requests as time allows.
+
+I am very interested in hearing your feedback! If you deploy this architecture, run into bottlenecks, or have ideas for improvements, please open an issue or start a discussion in the repository.
+
+## License
+
+This project is licensed under the **Apache License 2.0**. 
+
+You are completely free to use, modify, and distribute this software as you see fit, whether for personal, academic, or commercial purposes. The goal is to give you a strong foundation to build upon.
