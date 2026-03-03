@@ -27,3 +27,4 @@ certs/*.ext
 
 # Load testing
 load-test/
+docs/blog-post.md
