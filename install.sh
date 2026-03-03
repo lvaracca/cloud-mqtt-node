@@ -81,7 +81,8 @@ cd "$DEST_DIR"
 # 4. Authentication (if not logged in)
 if ! gcloud auth print-access-token &> /dev/null; then
     echo "You must authenticate to Google Cloud."
-    gcloud auth login
+    echo "Please follow the link below to authenticate from any browser, then paste the authorization code here:"
+    gcloud auth login --no-browser
 fi
 
 gcloud config set project "$GCP_PROJECT_ID"

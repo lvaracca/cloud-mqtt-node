@@ -77,7 +77,8 @@ You have two options to deploy this architecture:
 Use the automated installation script. It will check prerequisites, clone the repository, and guide you through configuration before launching the deployment.
 
 ```bash
-curl -sL https://raw.githubusercontent.com/lvaracca/cloud-mqtt-node/main/install.sh | bash
+curl -sO https://raw.githubusercontent.com/lvaracca/cloud-mqtt-node/main/install.sh
+bash install.sh
 ```
 
 **Option 2: Manual Clone**
