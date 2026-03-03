@@ -1,0 +1,146 @@
+#!/bin/bash
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+set -e
+
+# --- Configuration ---
+PROJECT_ID="${GCP_PROJECT_ID}"
+REGION="${GCP_REGION:-us-central1}"
+REPO_NAME="mqtt-repo"
+IMAGE_NAME="cloud-mqtt-node"
+SERVICE_ACCOUNT_NAME="cloud-mqtt-sa" 
+# Note: We use default compute SA for simplicity in this demo, but a dedicated SA would be better.
+# The current Terraform uses Default Compute SA.
+
+# --- Validation ---
+if [ -z "$PROJECT_ID" ]; then
+    echo "ERROR: GCP_PROJECT_ID environment variable is not set."
+    echo "Please run: export GCP_PROJECT_ID=your-project-id"
+    exit 1
+fi
+
+if ! command -v terraform &> /dev/null; then
+    echo "ERROR: terraform (>= 1.5.0) is not installed or not in PATH."
+    echo "Please install Terraform: https://developer.hashicorp.com/terraform/install"
+    exit 1
+fi
+
+echo "=== Cloud MQTT Node Deployment ==="
+echo "Project ID: $PROJECT_ID"
+echo "Region:     $REGION"
+
+# --- 1. Enable APIs ---
+echo -e "\n1. Enabling GCP APIs..."
+# Enable: Compute, PubSub, Artifact Registry, Cloud Build, Certificate Manager (if used, currently self-signed)
+# IMPORTANT: cloudresourcemanager and iam are required for Terraform to manage IAM policies
+gcloud services enable \
+    serviceusage.googleapis.com \
+    compute.googleapis.com \
+    pubsub.googleapis.com \
+    bigquery.googleapis.com \
+    cloudbuild.googleapis.com \
+    artifactregistry.googleapis.com \
+    cloudresourcemanager.googleapis.com \
+    iam.googleapis.com \
+    certificatemanager.googleapis.com \
+    --project "$PROJECT_ID"
+
+# Workaround for IPv6 connectivity issues in some environments
+echo "Disabling IPv6 to prevent connectivity issues..."
+sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
+sudo sysctl -w net.ipv6.conf.ens4.disable_ipv6=1 2>/dev/null || true
+
+echo "Waiting for APIs to propagate..."
+sleep 10
+
+# --- 2. Configure IAM ---
+echo -e "\n2. Configuring Permissions..."
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)")
+COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+CLOUDBUILD_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
+
+# Grant Admin roles to Compute SA (used by VM to pull image) and Cloud Build
+# TODO: Scope this down for production
+echo "Granting roles to Default Compute SA ($COMPUTE_SA)..."
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${COMPUTE_SA}" --role="roles/artifactregistry.reader" --condition=None || true
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${COMPUTE_SA}" --role="roles/artifactregistry.writer" --condition=None || true # For push during build if using same SA
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${COMPUTE_SA}" --role="roles/logging.logWriter" --condition=None || true
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${COMPUTE_SA}" --role="roles/storage.admin" --condition=None || true # For Terraform state if using GCS backend
+
+# Additional roles might be needed for the actual MQTT bridge logic (PubSub Publisher, BigQuery Writer)
+# These are typically handled by Terraform service account creation, but if the VM runs as Default SA:
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${COMPUTE_SA}" --role="roles/pubsub.publisher" --condition=None || true
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${COMPUTE_SA}" --role="roles/bigquery.dataEditor" --condition=None || true
+
+
+# --- 3. Artifact Registry ---
+echo -e "\n3. Setting up Artifact Registry..."
+# Create repository if it doesn't exist
+gcloud artifacts repositories create "$REPO_NAME" \
+    --repository-format=docker \
+    --location="$REGION" \
+    --description="Repository for MQTT Bridge" \
+    --project="$PROJECT_ID" \
+    --quiet || echo "Repository $REPO_NAME already exists."
+
+# Correct Image URI
+IMAGE_URI="$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/$IMAGE_NAME:latest"
+
+# --- 4. Certificates ---
+echo -e "\n4. Checking Certificates..."
+if [ ! -f "terraform/terraform.tfvars" ]; then
+    echo "terraform.tfvars not found."
+    if [[ "$1" == "--test" ]]; then
+        echo "Test mode: Generating self-signed certificates..."
+        ./generate_certs.sh
+    else
+        read -p "Do you want to generate self-signed certificates for testing? [y/N] " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            ./generate_certs.sh
+        else
+            echo "Please ensure terraform/terraform.tfvars is populated with 'ca_cert_pem', 'tls_cert', 'tls_key', and 'domain_name'."
+            # We don't exit, maybe they just want to build? But TF will fail.
+        fi
+    fi
+else
+    echo "terraform.tfvars exists. Skipping generation."
+fi
+
+# --- 5. Build & Push ---
+echo -e "\n5. Building Container..."
+# Use Cloud Build
+gcloud builds submit bridge/ \
+    --tag "$IMAGE_URI" \
+    --project "$PROJECT_ID"
+
+# --- 6. Terraform ---
+echo -e "\n6. Deploying Infrastructure..."
+cd terraform
+terraform init
+export TF_VAR_project_id="$PROJECT_ID"
+export TF_VAR_bridge_image="$IMAGE_URI"
+
+# If region/zone variables are needed and not in tfvars, export them too
+export TF_VAR_region="$REGION"
+export TF_VAR_zone="${REGION}-a"
+
+echo "Applying Terraform configuration..."
+terraform apply -auto-approve
+
+echo -e "\n=== Deployment Complete ==="
+echo "MQTT Bridge is running."
+echo "Image: $IMAGE_URI"

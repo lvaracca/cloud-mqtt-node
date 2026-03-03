@@ -1,0 +1,29 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Terraform
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
+terraform/.terraform.lock.hcl
+*.zip
+
+# Generated Certificates
+certs/*.key
+certs/*.pem
+certs/*.crt
+certs/*.csr
+certs/*.srl
+certs/*.ext
+
+# Load testing
+load-test/
