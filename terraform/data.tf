@@ -78,5 +78,17 @@ resource "google_pubsub_subscription" "bq_subscription" {
     write_metadata   = true # This automatically writes publish_time and message_id
   }
 
-  depends_on = [google_bigquery_table.bq_table]
+  depends_on = [
+    google_bigquery_table.bq_table,
+    google_project_iam_member.pubsub_bq_writer
+  ]
+}
+
+# Grant Pub/Sub Service Account permission to write to BigQuery
+data "google_project" "project" {}
+
+resource "google_project_iam_member" "pubsub_bq_writer" {
+  project = data.google_project.project.project_id
+  role    = "roles/bigquery.dataEditor"
+  member  = "serviceAccount:service-${data.google_project.project.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
 }
