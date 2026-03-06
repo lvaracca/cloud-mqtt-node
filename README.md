@@ -37,7 +37,7 @@ This architecture is built around an in-memory Mosquitto broker handling the cli
 > 
 > * **The trade-off**: This Stateless architecture is a deliberate compromise—accepting a minimal risk of message loss during rare critical failures in exchange for a simple, "1-click" serverless-like deployment model.
 
-Even with a single instance, an `e2-standard-4` VM running this lightweight Go bridge is capable of handling peak loads of up to **50,000 to 60,000 messages per second**.
+Even with a single instance, an `e2-medium` VM running this lightweight Go bridge is capable of handling peak loads of up to **10,000 to 15,000 messages per second**.
 
 To put that into an industrial context:
 
@@ -63,25 +63,25 @@ This project focuses strictly on the cloud-side ingestion architecture. **It doe
 
 ### Scalability limits & tuning
 
-This project uses a scale-upvertical approach rather than a complex distributed cluster. With the default `e2-standard-4` (4 vCPUs, 16GB RAM) configuration, the theoretical physical limits are:
+This project uses a scale-upvertical approach rather than a complex distributed cluster. With the default `e2-medium` (2 vCPUs, 4GB RAM) configuration, the theoretical physical limits are:
 
 - **Maximum Connections**: ~65,000 concurrent devices (limited by the OS `ulimit -n` configuration on the VM).
-- **Maximum Throughput**: ~50,000 - 60,000 messages per second (bottlenecked by the 4 vCPUs processing MQTT packets and encrypting gRPC traffic to Pub/Sub).
+- **Maximum Throughput**: ~10,000 - 15,000 messages per second (bottlenecked by the 2 vCPUs processing MQTT packets and encrypting gRPC traffic to Pub/Sub).
 
 To unlock this massive throughput on a single node, the following specific optimizations are baked into the architecture:
 - **Mosquitto Queue Bypass**: In the startup script, Mosquitto is explicitly configured with `max_queued_messages 0` and `max_inflight_messages 65535` so it never artificially drops messages or blocks the Go bridge subscriber. *Note: `65535` is explicitly chosen because it is the hard mathematical limit of the 16-bit Packet ID in the MQTT protocol for QoS 1 & 2. Bounding it to this absolute native limit instead of `0` (unlimited) prevents the broker CPU from entering unbounded loops or memory crashes during extreme load spikes, while still guaranteeing the maximum theoretical throughput the protocol allows.*
 - **Go Bridge Pub/Sub Batching**: The `bridge/main.go` uses aggressively tuned Pub/Sub producer settings (5MB payload thresholds, 1000 message batches, and 10 concurrent goroutines) to maximize outbound bandwidth to Google Cloud.
 - **High-Concurrency OS Tuning**: The VM startup script increases system-wide file descriptors (`fs.file-max`) and TCP backlog queues to ensure network saturation does not fail at the OS layer.
 
-*Note: For smaller environments or proof of concepts, you can scale the instance down to an `e2-medium` (2 vCPUs) to reduce costs, though the maximum throughput will be significantly lower (around ~1,500 msgs/s) due to Mosquitto and the Go Bridge competing for CPU resources.*
+*Note: For extreme environments requiring even more throughput (e.g. 50,000+ msgs/s), you can scale the instance up to an `e2-standard-4` or `c2-standard-4` (compute-optimized). The architecture scales vertically flawlessly, though this will proportionately increase monthly compute costs.*
 
 
 ### Cost Estimation
 This solution is designed to be highly cost-effective, leveraging serverless scale-to-zero concepts where possible (Pub/Sub and BigQuery) while maintaining a persistent edge:
-* **Compute**: A default `e2-standard-4` costs approximately ~$120/month.
+* **Compute**: A default `e2-medium` costs approximately ~$25/month.
 * **Network & Load Balancing**: The Global TCP Load Balancer incurs a base forwarding rule cost of ~$18/month plus data processing fees.
 * **Data Transit (Pub/Sub & BQ)**: Billed per GB processed. At standard POC scales, this amounts to pennies.
-* **Total Estimated Cost**: Roughly **$140 - $150 per month** for the entire highly-available ingestion pipeline, capable of handling massive industrial volumes.
+* **Total Estimated Cost**: Roughly **$45 - $55 per month** for the entire highly-available ingestion pipeline, capable of handling massive industrial volumes.
 
 ## Prerequisites
 

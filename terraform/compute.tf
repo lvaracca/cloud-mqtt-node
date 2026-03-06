@@ -120,7 +120,7 @@ resource "google_project_iam_member" "artifact_registry_reader" {
 # Instance Template
 resource "google_compute_instance_template" "mqtt_template" {
   name_prefix  = "cloud-mqtt-node-template-"
-  machine_type = "e2-standard-4"
+  machine_type = "e2-medium"
   region       = var.region
 
   network_interface {
