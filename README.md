@@ -20,6 +20,10 @@ graph LR
 -   **Security**: Enforced mTLS authentication (Client Certificates) at the Load Balancer level.
 -   **Serverless Data Ingestion**: Direct streaming from Pub/Sub to BigQuery.
 
+### Out of Scope & Assumptions
+
+This project focuses strictly on the cloud-side ingestion architecture. **It does not cover the physical devices, sensors, or edge gateways.** The architecture operates on the fundamental assumption that you already have devices or edge systems capable of successfully connecting and sending data via the MQTT protocol.
+
 > **Note on Enterprise Alternatives**: There are excellent commercial platforms available on the market (such as [Litmus](https://litmus.io/), [Clearblade](https://www.clearblade.com/), and others) that provide comprehensive, fully-managed IoT messaging capabilities. This project is not intended to replace them, but rather to offer a quick, easily deployable foundation for a Proof of Concept (POC) or a lightweight custom pipeline on GCP.
 > 
 > *It is important to note that this architecture focuses purely on raw message ingestion. It lacks key enterprise features provided by these platforms, such as:*
