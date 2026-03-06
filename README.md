@@ -20,22 +20,7 @@ graph LR
 -   **Security**: Enforced mTLS authentication (Client Certificates) at the Load Balancer level.
 -   **Serverless Data Ingestion**: Direct streaming from Pub/Sub to BigQuery.
 
-
-> **Note on Enterprise Alternatives**: There are excellent commercial platforms available on the market (such as [Litmus](https://litmus.io/), [Clearblade](https://www.clearblade.com/), and others) that provide comprehensive, fully-managed IoT messaging capabilities. This project is not intended to replace them, but rather to offer a quick, easily deployable foundation for a Proof of Concept (POC) or a lightweight custom pipeline on GCP.
-> 
-> *It is important to note that this architecture focuses purely on raw message ingestion. It lacks key enterprise features provided by these platforms, such as:*
-> - *Detailed Device Management (Twin state, lifecycles, and provisioning).*
-> - *Over The Air (OTA) firmware updates.*
-> - *Edge protocol translation (OPC UA, Modbus, Profinet to MQTT).*
-> - *Advanced edge computing (running ML models or local analytics before sending data to the cloud).*
-
 This architecture is built around an in-memory Mosquitto broker handling the client connections before forwarding messages to Pub/Sub. Because Mosquitto operates in-memory and does not share session state across nodes, the Managed Instance Group (MIG) is intentionally **fixed to 1 instance**. 
-
->  **Single Point of Failure (SPOF) & Data Loss Warning**: Because the architecture relies on a single VM, it inherently presents a SPOF. We have intentionally chosen a **Stateless** Managed Instance Group (MIG) to maximize deployment simplicity (e.g. via the `install.sh` script) and minimize operational overhead (avoiding complex regional persistent disk mounts and startup scripts). 
-> 
-> * **What this means for data**: If the Mosquitto container crashes or the VM reboots gracefully, *no data is lost* because the queue is saved to the local boot disk. However, if the VM dies completely (e.g., hard crash, zone failure) and the MIG spins up a brand-new instance to replace it, the old boot disk is destroyed and any messages queued in Mosquitto at that split second **will be permanently lost**. 
-> 
-> * **The trade-off**: This Stateless architecture is a deliberate compromise—accepting a minimal risk of message loss during rare critical failures in exchange for a simple, "1-click" serverless-like deployment model.
 
 Even with a single instance, an `e2-medium` VM running this lightweight Go bridge is capable of handling peak loads of up to **10,000 to 15,000 messages per second**.
 
@@ -54,6 +39,20 @@ From an industrial perspective, these figures represent excellent baseline avera
 > **The Reality of Edge Computing**: To avoid saturating the network with the 30,000+ messages per second of a "Mega-Factory", industrial environments heavily rely on Edge Computing. Local gateways or PLCs aggregate, filter, and process data at the edge, sending only anomalies, averages, or state changes (management by exception) to the cloud. This project intentionally **does not** handle edge computing or protocol translation, focusing purely on high-throughput cloud ingestion from capable edge gateways. 
 > 
 > *It's also worth noting that this architecture is possible because **BigQuery** is inherently designed to ingest massive volumes of streaming data. Pub/Sub writes directly to it at an almost unbounded scale without any traditional database bottlenecks.*
+
+> **Note on Enterprise Alternatives**: There are excellent commercial platforms available on the market (such as [Litmus](https://litmus.io/), [Clearblade](https://www.clearblade.com/), and others) that provide comprehensive, fully-managed IoT messaging capabilities. This project is not intended to replace them, but rather to offer a quick, easily deployable foundation for a Proof of Concept (POC) or a lightweight custom pipeline on GCP.
+> 
+> *It is important to note that this architecture focuses purely on raw message ingestion. It lacks key enterprise features provided by these platforms, such as:*
+> - *Detailed Device Management (Twin state, lifecycles, and provisioning).*
+> - *Over The Air (OTA) firmware updates.*
+> - *Edge protocol translation (OPC UA, Modbus, Profinet to MQTT).*
+> - *Advanced edge computing (running ML models or local analytics before sending data to the cloud).*
+
+>  **Single Point of Failure (SPOF) & Data Loss Warning**: Because the architecture relies on a single VM, it inherently presents a SPOF. We have intentionally chosen a **Stateless** Managed Instance Group (MIG) to maximize deployment simplicity (e.g. via the `install.sh` script) and minimize operational overhead (avoiding complex regional persistent disk mounts and startup scripts). 
+> 
+> * **What this means for data**: If the Mosquitto container crashes or the VM reboots gracefully, *no data is lost* because the queue is saved to the local boot disk. However, if the VM dies completely (e.g., hard crash, zone failure) and the MIG spins up a brand-new instance to replace it, the old boot disk is destroyed and any messages queued in Mosquitto at that split second **will be permanently lost**. 
+> 
+> * **The trade-off**: This Stateless architecture is a deliberate compromise—accepting a minimal risk of message loss during rare critical failures in exchange for a simple, "1-click" serverless-like deployment model. 
 
 
 ###  Assumptions
