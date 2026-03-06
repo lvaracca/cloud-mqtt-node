@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"cloud.google.com/go/pubsub"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -50,6 +51,12 @@ func main() {
 	defer client.Close()
 
 	topic := client.Topic(topicID)
+	// Enable high-throughput batching settings for the Pub/Sub producer.
+	topic.PublishSettings.ByteThreshold = 5000000     // 5MB batch
+	topic.PublishSettings.CountThreshold = 1000       // Max 1000 messages per batch
+	topic.PublishSettings.DelayThreshold = 50 * time.Millisecond // 50ms max delay
+	topic.PublishSettings.NumGoroutines = 10          // allow up to 10 concurrent streams to PubSub
+
 	defer topic.Stop()
 
 	opts := mqtt.NewClientOptions().AddBroker(mqttBroker).SetClientID(mqttClientID)

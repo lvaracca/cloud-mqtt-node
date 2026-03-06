@@ -20,9 +20,6 @@ graph LR
 -   **Security**: Enforced mTLS authentication (Client Certificates) at the Load Balancer level.
 -   **Serverless Data Ingestion**: Direct streaming from Pub/Sub to BigQuery.
 
-### Out of Scope & Assumptions
-
-This project focuses strictly on the cloud-side ingestion architecture. **It does not cover the physical devices, sensors, or edge gateways.** The architecture operates on the fundamental assumption that you already have devices or edge systems capable of successfully connecting and sending data via the MQTT protocol.
 
 > **Note on Enterprise Alternatives**: There are excellent commercial platforms available on the market (such as [Litmus](https://litmus.io/), [Clearblade](https://www.clearblade.com/), and others) that provide comprehensive, fully-managed IoT messaging capabilities. This project is not intended to replace them, but rather to offer a quick, easily deployable foundation for a Proof of Concept (POC) or a lightweight custom pipeline on GCP.
 > 
@@ -40,29 +37,51 @@ This architecture is built around an in-memory Mosquitto broker handling the cli
 > 
 > * **The trade-off**: This Stateless architecture is a deliberate compromise—accepting a minimal risk of message loss during rare critical failures in exchange for a simple, "1-click" serverless-like deployment model.
 
-Even with a single instance, an `e2-medium` VM running this lightweight Go bridge is capable of handling peak loads of up to **50,000 messages per second**.
+Even with a single instance, an `e2-standard-4` VM running this lightweight Go bridge is capable of handling peak loads of up to **50,000 to 60,000 messages per second**.
 
-To put this into an industrial context, this single node can comfortably handle the telemetry of an entire large-scale factory. Below is a realistic estimation of sensor density based on factory size:
+To put that into an industrial context:
 
-| Factory Size | Area / Complexity | Avg. Number of Connected Sensors | Message Frequency | Total Messages / Second |
+| Facility Type | Avg. Sensors | Message Frequency | Total Messages / Second | Notes |
 | :--- | :--- | :--- | :--- | :--- |
-| **Small** | < 5,000 m² (e.g., specialized workshop) | 100 - 500 | 1 msg / 5s | 20 - 100 msg/s |
-| **Medium** | 5,000 - 20,000 m² (e.g., standard assembly) | 1,000 - 3,000 | 1 msg / 2s | 500 - 1,500 msg/s |
-| **Large** | > 20,000 m² (e.g., automotive plant) | 5,000 - 15,000 | 1 msg / 2s | 2,500 - 7,500 msg/s |
-| **Mega-Factory** | Multi-building complex (e.g., Gigafactory) | 30,000 - 50,000+ | 1 msg / 1s | 30,000+ msg/s |
+| **Small Workshop (CNC Machining)** | 50 - 200 | 1 msg / 5s | 10 - 40 msg/s | Basic machine state monitoring (on/off, faults). |
+| **Connected Logistics Warehouse** | 2,000 - 5,000 | 1 msg / 10s | 200 - 500 msg/s | Tracking AGVs (robots), RFID tags, and dock doors. |
+| **Refinery / Chemical Plant** | 10,000 - 50,000 | 1 msg / 10s | 1,000 - 5,000 msg/s | Many control points (valves, pressure), but processes evolve slowly. |
+| **Ultra-High-Speed Bottling Line** | 300 - 800 | 10 msg / 1s | 3,000 - 8,000 msg/s | Fewer sensors, but extreme pace requiring near real-time tracking (vision, rejects). |
+| **Offshore Wind Farm** | 5,000 - 10,000 | 5 msg / 1s | 25,000 - 50,000 msg/s | Very high frequency to monitor blade and turbine vibrations (often sent in data batches). |
 
-*Note: Even an extremely dense "Mega-Factory" streaming telemetry every second fits within the theoretical limits of this single `e2-medium` node.*
+From an industrial perspective, these figures represent excellent baseline averages for centralized telemetry data ingestion. However, the reality is often asymmetrical: an ambient temperature sensor might only send one message per minute, while a vibration sensor for predictive maintenance could sample at 10,000 Hz (although it is often pre-processed at the edge/Edge computing so it only sends a summary once per second). Even with these variations, a massive facility fits comfortably within the theoretical limits of this single, tiny node.
 
 > **The Reality of Edge Computing**: To avoid saturating the network with the 30,000+ messages per second of a "Mega-Factory", industrial environments heavily rely on Edge Computing. Local gateways or PLCs aggregate, filter, and process data at the edge, sending only anomalies, averages, or state changes (management by exception) to the cloud. This project intentionally **does not** handle edge computing or protocol translation, focusing purely on high-throughput cloud ingestion from capable edge gateways. 
 > 
 > *It's also worth noting that this architecture is possible because **BigQuery** is inherently designed to ingest massive volumes of streaming data. Pub/Sub writes directly to it at an almost unbounded scale without any traditional database bottlenecks.*
 
+
+###  Assumptions
+
+This project focuses strictly on the cloud-side ingestion architecture. **It does not cover the physical devices, sensors, or edge gateways.** The architecture operates on the fundamental assumption that you already have devices or edge systems capable of successfully connecting and sending data via the MQTT protocol.
+
+
+### Scalability limits & tuning
+
+This project uses a scale-upvertical approach rather than a complex distributed cluster. With the default `e2-standard-4` (4 vCPUs, 16GB RAM) configuration, the theoretical physical limits are:
+
+- **Maximum Connections**: ~65,000 concurrent devices (limited by the OS `ulimit -n` configuration on the VM).
+- **Maximum Throughput**: ~50,000 - 60,000 messages per second (bottlenecked by the 4 vCPUs processing MQTT packets and encrypting gRPC traffic to Pub/Sub).
+
+To unlock this massive throughput on a single node, the following specific optimizations are baked into the architecture:
+- **Mosquitto Queue Bypass**: In the startup script, Mosquitto is explicitly configured with `max_queued_messages 0` and `max_inflight_messages 65535` so it never artificially drops messages or blocks the Go bridge subscriber. *Note: `65535` is explicitly chosen because it is the hard mathematical limit of the 16-bit Packet ID in the MQTT protocol for QoS 1 & 2. Bounding it to this absolute native limit instead of `0` (unlimited) prevents the broker CPU from entering unbounded loops or memory crashes during extreme load spikes, while still guaranteeing the maximum theoretical throughput the protocol allows.*
+- **Go Bridge Pub/Sub Batching**: The `bridge/main.go` uses aggressively tuned Pub/Sub producer settings (5MB payload thresholds, 1000 message batches, and 10 concurrent goroutines) to maximize outbound bandwidth to Google Cloud.
+- **High-Concurrency OS Tuning**: The VM startup script increases system-wide file descriptors (`fs.file-max`) and TCP backlog queues to ensure network saturation does not fail at the OS layer.
+
+*Note: For smaller environments or proof of concepts, you can scale the instance down to an `e2-medium` (2 vCPUs) to reduce costs, though the maximum throughput will be significantly lower (around ~1,500 msgs/s) due to Mosquitto and the Go Bridge competing for CPU resources.*
+
+
 ### Cost Estimation
 This solution is designed to be highly cost-effective, leveraging serverless scale-to-zero concepts where possible (Pub/Sub and BigQuery) while maintaining a persistent edge:
-* **Compute**: A default `e2-medium` costs approximately ~$25/month.
+* **Compute**: A default `e2-standard-4` costs approximately ~$120/month.
 * **Network & Load Balancing**: The Global TCP Load Balancer incurs a base forwarding rule cost of ~$18/month plus data processing fees.
 * **Data Transit (Pub/Sub & BQ)**: Billed per GB processed. At standard POC scales, this amounts to pennies.
-* **Total Estimated Cost**: Roughly **$45 - $55 per month** for the entire highly-available ingestion pipeline, making it incredibly cheap for the volume it can handle.
+* **Total Estimated Cost**: Roughly **$140 - $150 per month** for the entire highly-available ingestion pipeline, capable of handling massive industrial volumes.
 
 ## Prerequisites
 

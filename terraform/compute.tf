@@ -39,6 +39,7 @@ locals {
     listener 1883
     max_connections -1
     max_queued_messages 0
+    max_inflight_messages 65535
 
     # Logging
     log_type error
@@ -119,7 +120,7 @@ resource "google_project_iam_member" "artifact_registry_reader" {
 # Instance Template
 resource "google_compute_instance_template" "mqtt_template" {
   name_prefix  = "cloud-mqtt-node-template-"
-  machine_type = "e2-medium"
+  machine_type = "e2-standard-4"
   region       = var.region
 
   network_interface {
@@ -199,6 +200,13 @@ resource "google_compute_region_instance_group_manager" "mqtt_mig" {
   auto_healing_policies {
     health_check      = google_compute_health_check.mqtt_hc.id
     initial_delay_sec = 300
+  }
+
+  update_policy {
+    type                  = "PROACTIVE"
+    minimal_action        = "REPLACE"
+    max_surge_fixed       = 2
+    max_unavailable_fixed = 2
   }
 }
 
